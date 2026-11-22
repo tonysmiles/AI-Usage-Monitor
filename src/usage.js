@@ -101,4 +101,73 @@ async function fetchChatGPT(oauth, id, f = fetch) {
   });
 }
 
-module.exports = { fetchClaude, fetchChatGPT, findRenewal, toMs };
+// ---------- Gemini (gói Google AI qua Antigravity) ----------
+const GEMINI_HOSTS = ['https://daily-cloudcode-pa.googleapis.com', 'https://cloudcode-pa.googleapis.com'];
+// Chỉ client nhận diện là "antigravity/hub/..." mới được đọc hạn mức theo gói.
+const GEMINI_UA = 'antigravity/hub/2.33.0 windows/amd64';
+
+function geminiErr(r, body) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body || {});
+  if (/SUBSCRIPTION_REQUIRED|not eligible|NOT_ELIGIBLE/i.test(text)) {
+    return Object.assign(new Error('Tài khoản chưa đủ điều kiện dùng Antigravity'), { code: 'gemini_not_eligible' });
+  }
+  return Object.assign(new Error(`Gemini trả về lỗi ${r.status}`), { code: 'http', httpStatus: r.status });
+}
+
+async function postGemini(f, path, token, body) {
+  let last = null;
+  for (const host of GEMINI_HOSTS) {
+    const r = await f(`${host}/v1internal:${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'User-Agent': GEMINI_UA,
+      },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) throw new Expired();
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
+    if (r.ok) return data || {};
+    last = geminiErr(r, data || text);
+    if (last.code === 'gemini_not_eligible') throw last;
+  }
+  throw last;
+}
+
+function projectIdOf(load) {
+  const p = load && load.cloudaicompanionProject;
+  if (typeof p === 'string') return p;
+  if (p && typeof p === 'object' && p.id) return p.id;
+  return null;
+}
+
+function tierName(load) {
+  const t = (load && (load.paidTier || load.currentTier)) || null;
+  if (!t) return null;
+  return t.name || t.id || null;
+}
+
+async function fetchGemini(oauth, id, f = fetch) {
+  return withRetry(oauth, id, async (t) => {
+    let project = t.gemini_project || null;
+    let plan = t.plan || null;
+    // Lần đầu (hoặc chưa có gói): hỏi Antigravity project + tên gói, rồi lưu lại.
+    if (!project || !plan) {
+      const load = await postGemini(f, 'loadCodeAssist', t.access_token, {
+        metadata: { ideType: 'ANTIGRAVITY', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
+      });
+      project = projectIdOf(load) || project;
+      plan = tierName(load) || plan;
+      if (oauth.patchTokens) oauth.patchTokens(id, { gemini_project: project, plan });
+    }
+    if (!project) throw Object.assign(new Error('Chưa thiết lập Antigravity'), { code: 'gemini_no_project' });
+    const raw = await postGemini(f, 'retrieveUserQuotaSummary', t.access_token, { project });
+    return { raw, account: t.email || null, email: t.email || null, plan, renewal: null };
+  });
+}
+
+module.exports = { fetchClaude, fetchChatGPT, fetchGemini, findRenewal, toMs, projectIdOf, tierName };

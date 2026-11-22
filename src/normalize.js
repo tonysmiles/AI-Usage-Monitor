@@ -88,6 +88,39 @@ function normalizeChatGPT(raw, now = Date.now()) {
   return { plan: raw && raw.plan_type ? String(raw.plan_type) : null, windows };
 }
 
+// Gemini (Antigravity): groups[].buckets[] với remainingFraction (0..1, bị bỏ đi khi bằng 0) và resetTime.
+function normalizeGemini(raw) {
+  const windows = [];
+  const groups = raw && Array.isArray(raw.groups) ? raw.groups : [];
+  for (const g of groups) {
+    const gname = String(g.displayName || '');
+    const isThird = /claude|gpt|3p/i.test(gname);
+    for (const b of Array.isArray(g.buckets) ? g.buckets : []) {
+      if (b.disabled) continue;
+      const bid = String(b.bucketId || b.displayName || '');
+      const kind = /5h|five/i.test(bid) || /five hour/i.test(b.displayName || '') ? '5h'
+        : /week/i.test(bid) || /weekly/i.test(b.displayName || '') ? 'week' : 'other';
+      const rem = b.remainingFraction == null ? 0 : Number(b.remainingFraction);
+      if (Number.isNaN(rem)) continue;
+      const name = isThird ? 'C/GPT' : null;
+      const base = kind === '5h' ? 'Phiên 5 giờ' : kind === 'week' ? 'Tuần' : (b.displayName || 'Giới hạn');
+      windows.push({
+        id: bid || `${gname}:${kind}`,
+        label: isThird ? `Claude & GPT · ${base}` : `Gemini · ${base}`,
+        kind,
+        hours: kind === '5h' ? 5 : kind === 'week' ? 168 : null,
+        name,
+        percent: pct((1 - rem) * 100),
+        resetsAt: b.resetTime ? Date.parse(b.resetTime) || null : null,
+      });
+    }
+  }
+  // Gemini trước, mỗi nhóm 5h trước tuần.
+  const order = (w) => (w.name ? 2 : 0) + (w.kind === '5h' ? 0 : 1);
+  windows.sort((a, b) => order(a) - order(b));
+  return { windows };
+}
+
 // So sánh hai lần đọc để tìm sự kiện: reset (số đã về lại) và vượt ngưỡng.
 function diffEvents(prevWindows, nextWindows, threshold = 70) {
   const events = [];
@@ -107,4 +140,4 @@ function diffEvents(prevWindows, nextWindows, threshold = 70) {
   return events;
 }
 
-module.exports = { normalizeClaude, normalizeChatGPT, windowLabel, diffEvents };
+module.exports = { normalizeClaude, normalizeChatGPT, normalizeGemini, windowLabel, diffEvents };

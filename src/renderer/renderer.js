@@ -1,4 +1,6 @@
-const PROVIDER_NAMES = { claude: 'Claude', chatgpt: 'ChatGPT' };
+const PROVIDER_NAMES = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' };
+const BADGE = { claude: 'CL', chatgpt: 'GPT', gemini: 'GEM' };
+const PROVIDERS = Object.keys(PROVIDER_NAMES);
 const THRESHOLD = 70;
 const DAY = 86400000;
 
@@ -8,7 +10,7 @@ const L = {
     week: 'Tuần', extra: 'Extra', limit: 'Giới hạn',
     hide: 'Ẩn xuống khay', addTip: 'Thêm tài khoản', compactTip: 'Thu gọn / mở rộng',
     addTitle: 'Thêm tài khoản', noAccounts: 'Chưa có tài khoản nào. Thêm một tài khoản để bắt đầu.',
-    addHint: 'Thêm tài khoản khác: đổi tài khoản trên trình duyệt trước, hoặc bấm "Sao chép link" rồi dán vào cửa sổ ẩn danh.',
+    addHint: 'Claude/ChatGPT dùng tài khoản đang đăng nhập trên trình duyệt: muốn thêm tài khoản khác thì đổi tài khoản trước, hoặc "Sao chép link" rồi dán vào cửa sổ ẩn danh. Gemini sẽ cho chọn tài khoản Google.',
     waiting: (n) => `${n}: chờ cho phép trên trình duyệt…`,
     reloginWaiting: (n) => `${n}: đang đăng nhập lại…`,
     copyLink: 'Sao chép link', copied: 'Đã chép', cancel: 'Huỷ',
@@ -30,7 +32,7 @@ const L = {
     week: 'Week', extra: 'Extra', limit: 'Limit',
     hide: 'Hide to tray', addTip: 'Add account', compactTip: 'Compact / expand',
     addTitle: 'Add account', noAccounts: 'No accounts yet. Add one to get started.',
-    addHint: 'Adding another account: switch accounts in your browser first, or click "Copy link" and paste it into a private window.',
+    addHint: 'Claude/ChatGPT use the account signed in to your browser: switch accounts first, or "Copy link" into a private window. Gemini lets you pick a Google account.',
     waiting: (n) => `${n}: waiting for browser approval…`,
     reloginWaiting: (n) => `${n}: signing in again…`,
     copyLink: 'Copy link', copied: 'Copied', cancel: 'Cancel',
@@ -95,7 +97,7 @@ function resetClock(ms) {
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   if (d.toDateString() === now.toDateString()) return hm;
   if (ms - now.getTime() < 6 * DAY) return `${t().days[d.getDay()]} ${hm}`;
-  return `${dateShort(d)} ${hm}`;
+  return `${t().days[d.getDay()]} ${dateShort(d)}`;
 }
 
 function resetTooltip(ms) {
@@ -244,7 +246,7 @@ function renderHead(a) {
   }
   head.append(el('span', 'name', PROVIDER_NAMES[a.provider]));
   if (a.shortName) head.append(el('span', 'who', a.shortName));
-  if (a.plan) head.append(el('span', 'plan', a.plan));
+  if (a.plan) head.append(el('span', 'plan', String(a.plan).replace(/^Google\s+/i, '')));
   if (a.stale) head.append(el('span', 'stale', t().stale));
   head.title = a.email || '';
   const more = btn('⋯', `more${menuOpen === a.id ? ' on' : ''}`, () => {
@@ -274,7 +276,7 @@ function renderCompact(a) {
   card.dataset.provider = a.provider;
   card.onclick = () => { expanded.add(a.id); render(current); };
   const row = el('div', `crow${a.status === 'ok' && a.windows.length ? '' : ' msgrow'}`);
-  row.append(el('span', `badge ${a.provider}`, a.provider === 'claude' ? 'CL' : 'GPT'));
+  row.append(el('span', `badge ${a.provider}`, BADGE[a.provider] || '?'));
   const name = el('span', 'cname', a.shortName || PROVIDER_NAMES[a.provider]);
   name.title = `${fullName(a)}${a.email ? `\n${a.email}` : ''}`;
   row.append(name);
@@ -332,7 +334,7 @@ function renderAdd() {
   const noAcc = !current.accounts.length;
   box.append(el('div', 'add-title', noAcc ? t().noAccounts : t().addTitle));
   const row = el('div', 'add-row');
-  for (const p of ['claude', 'chatgpt']) {
+  for (const p of PROVIDERS) {
     const b = btn(PROVIDER_NAMES[p], `prov ${p}`, () => { addOpen = false; window.api.add(p); });
     b.disabled = !!(current.pending && current.pending[p]);
     row.append(b);
@@ -370,7 +372,7 @@ function render(state) {
   if (menuOpen && !state.accounts.some((a) => a.id === menuOpen)) menuOpen = null;
   const parts = [];
   if (addOpen || !state.accounts.length) parts.push(renderAdd());
-  for (const p of ['claude', 'chatgpt']) if (state.pending && state.pending[p]) parts.push(renderPending(p, state.pending[p]));
+  for (const p of PROVIDERS) if (state.pending && state.pending[p]) parts.push(renderPending(p, state.pending[p]));
   if (state.addError) {
     const e = message(`${PROVIDER_NAMES[state.addError.provider]}: ${state.addError.message}`, true, btn('×', 'ghost icon', () => window.api.dismissError()));
     e.classList.add('adderr');

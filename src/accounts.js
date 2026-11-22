@@ -1,7 +1,7 @@
 // Danh sách tài khoản (không chứa token): [{ id, provider, label, email, workspace }]
 const crypto = require('crypto');
 
-const PROVIDER_NAMES = { claude: 'Claude', chatgpt: 'ChatGPT' };
+const PROVIDER_NAMES = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' };
 
 function newId(provider) {
   return `${provider}-${crypto.randomBytes(4).toString('hex')}`;

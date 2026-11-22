@@ -35,6 +35,9 @@ const STR = {
       http: (e) => `Máy chủ trả về lỗi ${e.httpStatus || '?'}`,
       no_endpoint: 'Không tìm thấy endpoint usage (có thể đã đổi)',
       parse: 'Không đọc được số liệu (định dạng đã đổi?)',
+      gemini_not_eligible: 'Tài khoản Google này chưa có gói AI Pro/Ultra hoặc chưa dùng được Antigravity',
+      missing_client: (e) => `Bản build này thiếu cấu hình đăng nhập ${e.provider || ''} (src/oauth-clients.local.json)`,
+      gemini_no_project: 'Chưa thiết lập Antigravity: mở Antigravity, đăng nhập một lần rồi thử lại',
     },
   },
   en: {
@@ -70,6 +73,9 @@ const STR = {
       http: (e) => `Server returned error ${e.httpStatus || '?'}`,
       no_endpoint: 'Usage endpoint not found (it may have changed)',
       parse: 'Could not read usage data (format changed?)',
+      gemini_not_eligible: 'This Google account has no AI Pro/Ultra plan or cannot use Antigravity yet',
+      missing_client: (e) => `This build is missing ${e.provider || ''} sign-in config (src/oauth-clients.local.json)`,
+      gemini_no_project: 'Antigravity is not set up: open Antigravity, sign in once, then retry',
     },
   },
 };

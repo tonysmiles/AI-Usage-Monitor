@@ -3,6 +3,12 @@
 const crypto = require('crypto');
 const http = require('http');
 
+// Cấu hình client OAuth riêng của máy (không commit). Thiếu file thì provider đó báo lỗi khi đăng nhập.
+function loadLocalClients() {
+  try { return require('./oauth-clients.local.json'); } catch (_) { return {}; }
+}
+const LOCAL = loadLocalClients();
+
 const PROVIDERS = {
   claude: {
     name: 'Claude',
@@ -33,6 +39,29 @@ const PROVIDERS = {
     },
     accountFromIdToken: true,
   },
+  // Gói Google AI (Gemini) cá nhân: hạn mức nằm ở Antigravity, dùng OAuth client công khai của Antigravity.
+  gemini: {
+    name: 'Gemini',
+    tool: 'Antigravity',
+    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    // Client ID/secret nằm trong src/oauth-clients.local.json (không đưa lên git), xem oauth-clients.example.json.
+    clientId: LOCAL.gemini && LOCAL.gemini.clientId,
+    clientSecret: LOCAL.gemini && LOCAL.gemini.clientSecret,
+    port: 51121,
+    callbackPath: '/oauth-callback',
+    scope: [
+      'https://www.googleapis.com/auth/cloud-platform',
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/userinfo.profile',
+      'https://www.googleapis.com/auth/cclog',
+      'https://www.googleapis.com/auth/experimentsandconfigs',
+    ].join(' '),
+    tokenFormat: 'form',
+    // select_account: luôn cho chọn tài khoản Google (tiện khi thêm nhiều tài khoản); consent: để nhận refresh_token.
+    extraAuth: { access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true' },
+    userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
+  },
 };
 
 class AuthRequired extends Error {
@@ -51,6 +80,10 @@ function parseJwt(token) {
   } catch (_) {
     return null;
   }
+}
+
+function toolName(p) {
+  return p.tool || (p.name === 'Claude' ? 'Claude Code' : 'Codex');
 }
 
 function codeErr(code, msg, extra = {}) {
@@ -177,7 +210,7 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
       timer = setTimeout(() => finish(codeErr('timeout', 'Hết thời gian chờ đăng nhập')), loginTimeoutMs);
       server.on('error', (e) => finish(
         e.code === 'EADDRINUSE'
-          ? codeErr('port_in_use', `Cổng ${p.port} đang bị chiếm. Đóng ${p.name === 'Claude' ? 'Claude Code' : 'Codex'} rồi thử lại.`, { port: p.port, tool: p.name === 'Claude' ? 'Claude Code' : 'Codex' })
+          ? codeErr('port_in_use', `Cổng ${p.port} đang bị chiếm. Đóng ${toolName(p)} rồi thử lại.`, { port: p.port, tool: toolName(p) })
           : e,
       ));
       server.listen(p.port, '127.0.0.1', onListening);
@@ -189,6 +222,7 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
   async function login(provider, { onUrl, open = true } = {}) {
     const p = providers[provider];
     if (!p) throw new Error('Nhà cung cấp không hợp lệ');
+    if (!p.clientId) throw codeErr('missing_client', `Thiếu client OAuth cho ${p.name} (src/oauth-clients.local.json)`, { provider: p.name });
     if (cancelers[provider]) cancelers[provider]();
     const verifier = b64url(crypto.randomBytes(32));
     const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
@@ -220,8 +254,16 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
       code_verifier: verifier,
     };
     if (p.tokenFallbackFormat) body.state = state;
+    if (p.clientSecret) body.client_secret = p.clientSecret;
     const data = await postToken(p, body);
-    return { provider, ...toTokens(p, data, null) };
+    const tokens = { provider, ...toTokens(p, data, null) };
+    if (p.userinfoUrl && !tokens.email) {
+      try {
+        const r = await fetchImpl(p.userinfoUrl, { headers: { Authorization: `Bearer ${tokens.access_token}` } });
+        if (r.ok) { const u = await r.json(); tokens.email = u.email || null; }
+      } catch (_) { /* email chỉ để hiển thị */ }
+    }
+    return tokens;
   }
 
   function cancelLogin(provider) {
@@ -247,12 +289,10 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
     if (force || t.expires_at - 60000 < Date.now()) {
       if (!t.refresh_token) throw new AuthRequired('Phiên hết hạn');
       try {
-        const data = await postToken(p, {
-          grant_type: 'refresh_token',
-          refresh_token: t.refresh_token,
-          client_id: p.clientId,
-        });
-        t = { provider: t.provider, ...toTokens(p, data, t) };
+        const params = { grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: p.clientId };
+        if (p.clientSecret) params.client_secret = p.clientSecret;
+        const data = await postToken(p, params);
+        t = { ...t, ...toTokens(p, data, t) };
         const latest = storage.load();
         latest[id] = t;
         storage.save(latest);
@@ -275,7 +315,15 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
     storage.save(all);
   }
 
-  return { login, cancelLogin, saveTokens, hasTokens, getTokens, logout };
+  // Ghi thêm trường vào token đã lưu (vd. project id của Gemini) mà không đụng tài khoản khác.
+  function patchTokens(id, patch) {
+    const all = storage.load();
+    if (!all[id]) return;
+    all[id] = { ...all[id], ...patch };
+    storage.save(all);
+  }
+
+  return { login, cancelLogin, saveTokens, hasTokens, getTokens, patchTokens, logout };
 }
 
 module.exports = { createOAuth, AuthRequired, PROVIDERS, parseJwt };

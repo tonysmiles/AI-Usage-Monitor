@@ -77,7 +77,7 @@ body:hover .tools { opacity: 1; }
 
 .row {
   position: relative;
-  display: grid; grid-template-columns: 42px 1fr 30px 54px;
+  display: grid; grid-template-columns: 50px 1fr 30px 54px;
   align-items: center; gap: 6px; height: 18px;
   margin: 0 -4px; padding: 0 4px; border-radius: 5px;
 }
@@ -202,6 +202,7 @@ button.mini { padding: 1px 6px !important; font-size: 10px !important; }
 .add-row .prov { flex: 1; padding: 4px 0 !important; color: #fff !important; }
 .add-row .prov.claude { background: #c8724f !important; }
 .add-row .prov.chatgpt { background: #2f9e7d !important; }
+.add-row .prov.gemini { background: #4a74e0 !important; }
 .add .hint { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.35; }
 .msg.pending { -webkit-app-region: no-drag; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .msg.pending span { flex: 1 1 100%; white-space: normal; }
@@ -212,11 +213,12 @@ button.mini { padding: 1px 6px !important; font-size: 10px !important; }
 .card.compact { cursor: pointer; margin-left: -4px; margin-right: -4px; padding-left: 4px; padding-right: 4px; }
 .card.compact + .card, .card + .card.compact { margin-top: 3px; padding-top: 3px; }
 .card.compact:hover { background: rgba(255,255,255,.04); }
-.crow { display: grid; grid-template-columns: 26px minmax(0, 1fr) 44px 30px 54px; align-items: center; gap: 6px; height: 20px; }
-.crow.msgrow { grid-template-columns: 26px auto minmax(0, 1fr) auto; }
+.crow { display: grid; grid-template-columns: 28px minmax(0, 1fr) 44px 30px 54px; align-items: center; gap: 6px; height: 20px; }
+.crow.msgrow { grid-template-columns: 28px auto minmax(0, 1fr) auto; }
 .badge { justify-self: start; font: 700 8.5px/13px "Segoe UI", sans-serif; letter-spacing: .02em; padding: 0 3px; border-radius: 3px; color: #fff; }
 .badge.claude { background: #c8724f; }
 .badge.chatgpt { background: #2f9e7d; }
+.badge.gemini { background: #4a74e0; }
 .crow .cname { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crow .cmsg { color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crow .cmsg.err { color: var(--bad); }

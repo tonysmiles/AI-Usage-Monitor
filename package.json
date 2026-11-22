@@ -6,7 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/normalize.test.js && node test/oauth.test.js",
+    "test": "node test/normalize.test.js && node test/oauth.test.js && node test/gemini.test.js",
     "dist": "electron-builder --win portable"
   },
   "devDependencies": {

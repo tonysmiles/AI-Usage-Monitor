@@ -1,9 +1,9 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, safeStorage, net, screen, powerMonitor, Notification, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { normalizeClaude, normalizeChatGPT, diffEvents } = require('./normalize');
+const { normalizeClaude, normalizeChatGPT, normalizeGemini, diffEvents } = require('./normalize');
 const { createOAuth } = require('./oauth');
-const { fetchClaude, fetchChatGPT } = require('./usage');
+const { fetchClaude, fetchChatGPT, fetchGemini } = require('./usage');
 const { STR, errText } = require('./i18n');
 const { PROVIDER_NAMES, newId, migrate, findDuplicate, displayName } = require('./accounts');
 
@@ -66,7 +66,7 @@ let timer = null;
 let resetTimer = null;
 let refreshing = null;
 const usage = {};                                  // id -> { status, windows, plan, ... }
-const pending = { claude: null, chatgpt: null };   // đăng nhập đang chờ: { url, target }
+const pending = { claude: null, chatgpt: null, gemini: null };   // đăng nhập đang chờ: { url, target }
 let addError = null;
 let updatedAt = null;
 
@@ -101,10 +101,7 @@ function snapshot() {
     compact: settings.compact,
     updatedAt,
     addError,
-    pending: {
-      claude: pending.claude ? { target: pending.claude.target } : null,
-      chatgpt: pending.chatgpt ? { target: pending.chatgpt.target } : null,
-    },
+    pending: Object.fromEntries(Object.keys(PROVIDER_NAMES).map((p) => [p, pending[p] ? { target: pending[p].target } : null])),
     accounts: settings.accounts.map((a) => ({
       id: a.id,
       provider: a.provider,
@@ -120,8 +117,10 @@ function snapshot() {
 async function fetchAccount(a) {
   try {
     const f = (...x) => net.fetch(...x);
-    const res = a.provider === 'claude' ? await fetchClaude(oauth, a.id, f) : await fetchChatGPT(oauth, a.id, f);
-    const norm = a.provider === 'claude' ? normalizeClaude(res.raw) : normalizeChatGPT(res.raw);
+    const FETCH = { claude: fetchClaude, chatgpt: fetchChatGPT, gemini: fetchGemini };
+    const NORM = { claude: normalizeClaude, chatgpt: normalizeChatGPT, gemini: normalizeGemini };
+    const res = await FETCH[a.provider](oauth, a.id, f);
+    const norm = NORM[a.provider](res.raw);
     if (res.email && res.email !== a.email) { a.email = res.email; saveSettings(); }
     if (!norm.windows.length) return { status: 'error', message: errText(settings.lang, { code: 'parse' }) };
     return {
@@ -329,6 +328,7 @@ function buildTrayMenu() {
     { label: t.addAccount, submenu: [
       { label: 'Claude', click: () => { win.show(); startLogin('claude', null); } },
       { label: 'ChatGPT', click: () => { win.show(); startLogin('chatgpt', null); } },
+      { label: 'Gemini', click: () => { win.show(); startLogin('gemini', null); } },
     ] },
     { label: t.accounts, enabled: accItems.length > 0, submenu: accItems.length ? accItems : [{ label: '—', enabled: false }] },
     { type: 'separator' },

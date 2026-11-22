@@ -6,3 +6,5 @@ source.zip
 !.env.example
 *.log
 tokens.bin
+# Cấu hình client OAuth riêng, không đưa lên git
+src/oauth-clients.local.json
