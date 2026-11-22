@@ -1,0 +1,43 @@
+{
+  "name": "ai-usage-monitor",
+  "productName": "AI Usage Monitor",
+  "version": "1.0.0",
+  "description": "Hiển thị mức dùng của gói Claude và ChatGPT trên Windows",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/normalize.test.js && node test/oauth.test.js",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "local.ai-usage-monitor",
+    "productName": "AI Usage Monitor",
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "portable": {
+      "artifactName": "AI-Usage-Monitor.exe"
+    }
+  }
+}
