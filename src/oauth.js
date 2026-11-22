@@ -53,8 +53,15 @@ function parseJwt(token) {
   }
 }
 
+function codeErr(code, msg, extra = {}) {
+  const e = new Error(msg);
+  e.code = code;
+  Object.assign(e, extra);
+  return e;
+}
+
 function resultPage(ok, msg) {
-  const title = ok ? 'Đăng nhập thành công' : 'Đăng nhập thất bại';
+  const title = ok ? 'Đăng nhập thành công · Signed in' : 'Đăng nhập thất bại · Sign-in failed';
   return `<!doctype html><html lang="vi"><meta charset="utf-8"><title>${title}</title>
 <body style="font-family:Segoe UI,sans-serif;background:#14161a;color:#e8eaed;display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center"><h2>${title}</h2><p>${msg}</p></div></body></html>`;
@@ -78,9 +85,9 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
     let data = null;
     try { data = JSON.parse(text); } catch (_) {}
     if (!r.ok || !data || !data.access_token) {
-      const e = new Error(r.status === 429
-        ? 'Claude đang giới hạn số lần đăng nhập (HTTP 429). Đợi vài phút rồi thử lại.'
-        : `Đổi token thất bại (HTTP ${r.status})`);
+      const e = r.status === 429
+        ? codeErr('rate_limited', 'Đang bị giới hạn số lần đăng nhập (HTTP 429). Đợi vài phút rồi thử lại.')
+        : codeErr('token_failed', `Đổi token thất bại (HTTP ${r.status})`, { httpStatus: r.status });
       e.status = r.status;
       const ra = Number(r.headers && r.headers.get && r.headers.get('retry-after'));
       if (ra > 0) e.retryAfter = ra;
@@ -123,6 +130,8 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
       id_token: data.id_token || (prev && prev.id_token) || null,
       email: (prev && prev.email) || null,
       account_id: (prev && prev.account_id) || null,
+      subscription_until: (prev && prev.subscription_until) || null,
+      plan: (prev && prev.plan) || null,
     };
     if (data.account && data.account.email_address) t.email = data.account.email_address;
     if (p.accountFromIdToken && t.id_token) {
@@ -130,6 +139,8 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
       if (claims.email) t.email = claims.email;
       const auth = claims['https://api.openai.com/auth'] || {};
       if (auth.chatgpt_account_id) t.account_id = auth.chatgpt_account_id;
+      if (auth.chatgpt_subscription_active_until) t.subscription_until = auth.chatgpt_subscription_active_until;
+      if (auth.chatgpt_plan_type) t.plan = auth.chatgpt_plan_type;
     }
     return t;
   }
@@ -146,11 +157,11 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
         const st = u.searchParams.get('state');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', Connection: 'close' });
         if (err || !code || st !== state) {
-          res.end(resultPage(false, 'Quay lại app và thử đăng nhập lại.'));
-          finish(new Error(err ? `Bị từ chối: ${err}` : 'Phản hồi không hợp lệ (sai state)'));
+          res.end(resultPage(false, 'Quay lại app và thử lại · Go back to the app and try again.'));
+          finish(err ? codeErr('denied', `Bị từ chối: ${err}`) : codeErr('bad_state', 'Phản hồi không hợp lệ (sai state)'));
           return;
         }
-        res.end(resultPage(true, 'Mày có thể đóng tab này và quay lại app.'));
+        res.end(resultPage(true, 'Có thể đóng tab này · You can close this tab.'));
         finish(null, code);
       });
       function finish(err, code) {
@@ -162,27 +173,29 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
         setTimeout(() => { if (server.closeAllConnections) server.closeAllConnections(); }, 300).unref();
         if (err) reject(err); else resolve(code);
       }
-      cancelers[key] = () => finish(new Error('Đã huỷ đăng nhập'));
-      timer = setTimeout(() => finish(new Error('Hết thời gian chờ đăng nhập')), loginTimeoutMs);
+      cancelers[key] = () => finish(codeErr('cancelled', 'Đã huỷ đăng nhập'));
+      timer = setTimeout(() => finish(codeErr('timeout', 'Hết thời gian chờ đăng nhập')), loginTimeoutMs);
       server.on('error', (e) => finish(
         e.code === 'EADDRINUSE'
-          ? new Error(`Cổng ${p.port} đang bị chiếm (có thể ${p.name === 'Claude' ? 'Claude Code' : 'Codex'} đang đăng nhập). Đóng nó rồi thử lại.`)
+          ? codeErr('port_in_use', `Cổng ${p.port} đang bị chiếm. Đóng ${p.name === 'Claude' ? 'Claude Code' : 'Codex'} rồi thử lại.`, { port: p.port, tool: p.name === 'Claude' ? 'Claude Code' : 'Codex' })
           : e,
       ));
       server.listen(p.port, '127.0.0.1', onListening);
     });
   }
 
-  async function login(key) {
-    const p = providers[key];
+  // Đăng nhập một tài khoản của `provider`. Không tự lưu: trả token để main gắn vào tài khoản.
+  // onUrl(url): báo link xin quyền để người dùng có thể tự sao chép sang trình duyệt khác.
+  async function login(provider, { onUrl, open = true } = {}) {
+    const p = providers[provider];
     if (!p) throw new Error('Nhà cung cấp không hợp lệ');
-    if (cancelers[key]) cancelers[key]();
+    if (cancelers[provider]) cancelers[provider]();
     const verifier = b64url(crypto.randomBytes(32));
     const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
     const state = b64url(crypto.randomBytes(32));
     const redirectUri = `http://localhost:${p.port}${p.callbackPath}`;
 
-    const code = await waitForCode(key, p, state, () => {
+    const code = await waitForCode(provider, p, state, () => {
       const url = new URL(p.authorizeUrl);
       const params = {
         response_type: 'code',
@@ -195,7 +208,8 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
         ...p.extraAuth,
       };
       for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-      openUrl(url.toString());
+      if (onUrl) onUrl(url.toString());
+      if (open) openUrl(url.toString());
     });
 
     const body = {
@@ -207,21 +221,29 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
     };
     if (p.tokenFallbackFormat) body.state = state;
     const data = await postToken(p, body);
+    return { provider, ...toTokens(p, data, null) };
+  }
+
+  function cancelLogin(provider) {
+    if (cancelers[provider]) cancelers[provider]();
+  }
+
+  function saveTokens(id, tokens) {
     const all = storage.load();
-    all[key] = toTokens(p, data, null);
+    all[id] = tokens;
     storage.save(all);
-    return all[key];
   }
 
-  function cancelLogin(key) {
-    if (cancelers[key]) cancelers[key]();
+  function hasTokens(id) {
+    return !!storage.load()[id];
   }
 
-  async function getTokens(key, { force = false } = {}) {
-    const p = providers[key];
+  async function getTokens(id, { force = false } = {}) {
     const all = storage.load();
-    let t = all[key];
+    let t = all[id];
     if (!t) throw new AuthRequired();
+    const p = providers[t.provider];
+    if (!p) throw new AuthRequired();
     if (force || t.expires_at - 60000 < Date.now()) {
       if (!t.refresh_token) throw new AuthRequired('Phiên hết hạn');
       try {
@@ -230,13 +252,15 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
           refresh_token: t.refresh_token,
           client_id: p.clientId,
         });
-        t = toTokens(p, data, t);
-        all[key] = t;
-        storage.save(all);
+        t = { provider: t.provider, ...toTokens(p, data, t) };
+        const latest = storage.load();
+        latest[id] = t;
+        storage.save(latest);
       } catch (e) {
         if (e.status === 400 || e.status === 401 || e.status === 403) {
-          delete all[key];
-          storage.save(all);
+          const latest = storage.load();
+          delete latest[id];
+          storage.save(latest);
           throw new AuthRequired('Phiên hết hạn');
         }
         throw e;
@@ -245,13 +269,13 @@ function createOAuth({ openUrl, storage, fetchImpl = fetch, providers = PROVIDER
     return t;
   }
 
-  function logout(key) {
+  function logout(id) {
     const all = storage.load();
-    delete all[key];
+    delete all[id];
     storage.save(all);
   }
 
-  return { login, cancelLogin, getTokens, logout };
+  return { login, cancelLogin, saveTokens, hasTokens, getTokens, logout };
 }
 
 module.exports = { createOAuth, AuthRequired, PROVIDERS, parseJwt };
