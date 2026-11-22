@@ -1,3 +1,6 @@
+<img width="1920" height="1080" alt="AI-Usage-Monitor-vi" src="https://github.com/user-attachments/assets/f394ed00-9944-4086-9ca7-0255308e84be" />
+
+
 # AI Usage Monitor
 
 App Windows (Electron) hiện mức dùng gói **Claude** (Pro/Max), **ChatGPT** (Plus/Pro) và **Gemini** (Google AI Pro/Ultra): thanh % của phiên 5 giờ và giới hạn tuần, kèm đếm ngược reset. Có icon ở khay hệ thống, tự làm mới, tuỳ chọn luôn nằm trên cùng và chạy cùng Windows.
